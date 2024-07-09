@@ -1,0 +1,109 @@
+#define _WINSOCK_DEPRECATED_NO_WARNINGS // Отключение предупреждения об использовании устаревших функций Winsock
+
+#include <iostream>
+#include <string>
+#include <winsock2.h>
+#include <ws2tcpip.h> // Для InetPton
+
+#pragma comment(lib, "ws2_32.lib")
+
+int main() {
+    setlocale(LC_ALL, "Rus");
+    WSADATA wsaData;
+    int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (result != 0) {
+        std::cerr << "Ошибка при инициализации Winsock: " << result << std::endl;
+        return 1;
+    }
+
+    // Создание сокета
+    SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listenSocket == INVALID_SOCKET) {
+        std::cerr << "Ошибка при создании сокета: " << WSAGetLastError() << std::endl;
+        WSACleanup();
+        return 1;
+    }
+
+    // Настройка адреса сервера
+    sockaddr_in serverAddr;
+    serverAddr.sin_family = AF_INET;
+    result = inet_pton(AF_INET, "127.0.0.1", &serverAddr.sin_addr.s_addr); // Используем локальный IP для теста
+    if (result <= 0) {
+        std::cerr << "Ошибка при преобразовании IP-адреса: " << (result == 0 ? "Неверный адрес" : std::to_string(WSAGetLastError())) << std::endl;
+        closesocket(listenSocket);
+        WSACleanup();
+        return 1;
+    }
+    serverAddr.sin_port = htons(54000); // Порт сервера
+
+    // Привязка сокета к адресу сервера
+    result = bind(listenSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
+    if (result == SOCKET_ERROR) {
+        std::cerr << "Ошибка при привязке сокета: " << WSAGetLastError() << std::endl;
+        closesocket(listenSocket);
+        WSACleanup();
+        return 1;
+    }
+
+    // Прослушивание входящих подключений
+    result = listen(listenSocket, SOMAXCONN);
+    if (result == SOCKET_ERROR) {
+        std::cerr << "Ошибка при прослушивании сокета: " << WSAGetLastError() << std::endl;
+        closesocket(listenSocket);
+        WSACleanup();
+        return 1;
+    }
+    std::cout << "Сервер запущен. Ожидание подключений...\n";
+    std::cout << "Coded by Maren Keneshov\n";
+
+    // Принятие подключения от клиента
+    SOCKET clientSocket = accept(listenSocket, NULL, NULL);
+    if (clientSocket == INVALID_SOCKET) {
+        std::cerr << "Ошибка при принятии подключения: " << WSAGetLastError() << std::endl;
+        closesocket(listenSocket);
+        WSACleanup();
+        return 1;
+    }
+    std::cout << "Клиент подключился!\n";
+    closesocket(listenSocket); // Закрываем слушающий сокет, так как он больше не нужен
+
+    // Основной цикл обработки сообщений
+    char buf[4096];
+    std::string userInput;
+    do {
+        // Принимаем сообщение от клиента
+        int bytesReceived = recv(clientSocket, buf, sizeof(buf), 0);
+        if (bytesReceived > 0) {
+            std::cout << "Получено от клиента: " << std::string(buf, bytesReceived) << "\n";
+        }
+        else if (bytesReceived == 0) {
+            std::cerr << "Соединение закрыто клиентом\n";
+            break;
+        }
+        else {
+            std::cerr << "Ошибка при получении данных от клиента: " << WSAGetLastError() << std::endl;
+            break;
+        }
+
+        // Ввод сообщения для отправки клиенту
+        std::cout << "Введите сообщение для клиента (exit для выхода): ";
+        std::getline(std::cin, userInput);
+
+        // Проверяем на "exit" для выхода из цикла
+        if (userInput == "exit")
+            break;
+
+        // Отправляем сообщение клиенту
+        result = send(clientSocket, userInput.c_str(), userInput.size(), 0);
+        if (result == SOCKET_ERROR) {
+            std::cerr << "Ошибка при отправке данных клиенту: " << WSAGetLastError() << std::endl;
+            break;
+        }
+    } while (true);
+
+    // Закрытие сокета и очистка Winsock
+    closesocket(clientSocket);
+    WSACleanup();
+
+    return 0;
+}
